@@ -1,5 +1,5 @@
 const firebaseConfig = {
-  apiKey: "AIzaSyCgI1h-IbxcoPIhAc_7mzJF2bJ9WX0EMyw",
+  apiKey: "AIzaSyCg1Ih-IbxcoPIhAc_7mzJF2bJ9WX0EMyw",
   authDomain: "mc-racking---test.firebaseapp.com",
   projectId: "mc-racking---test",
   storageBucket: "mc-racking---test.firebasestorage.app",
