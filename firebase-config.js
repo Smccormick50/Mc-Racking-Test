@@ -1,24 +1,21 @@
-// Firebase configuration for the Mc Racking TEST site.
-// Replace the placeholder values below with the Web App config from your
-// Firebase project named: Mc Racking-Test.
-// Firebase Console → Project settings → General → Your apps → Web app config.
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
 
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "PASTE_TEST_API_KEY_HERE",
-  authDomain: "PASTE_TEST_AUTH_DOMAIN_HERE",
-  projectId: "PASTE_TEST_PROJECT_ID_HERE",
-  storageBucket: "PASTE_TEST_STORAGE_BUCKET_HERE",
-  messagingSenderId: "PASTE_TEST_MESSAGING_SENDER_ID_HERE",
-  appId: "PASTE_TEST_APP_ID_HERE"
+  apiKey: "AIzaSyCg1Ih-IbxcoPIhAc_7mzJF2bJ9WX0EMyw",
+  authDomain: "mc-racking---test.firebaseapp.com",
+  projectId: "mc-racking---test",
+  storageBucket: "mc-racking---test.firebasestorage.app",
+  messagingSenderId: "22203078980",
+  appId: "1:22203078980:web:6547d2250dc75a8d895f11",
+  measurementId: "G-43RX41YE28"
 };
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const auth = firebase.auth();
-
-async function ensureSignedIn() {
-  if (auth.currentUser) return auth.currentUser;
-  const result = await auth.signInAnonymously();
-  console.log("Signed in test user UID:", result.user.uid);
-  return result.user;
-}
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
