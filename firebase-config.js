@@ -1,17 +1,21 @@
-// Firebase configuration for the Racking Inventory site.
-// This file is meant to be edited if you ever need to change projects.
-// The apiKey here is safe to be public — security is enforced by
-// Firestore rules in the Firebase console, not by hiding this file.
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
 
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyAycjbG9_bYYNieTUEqvTJxj4vEDDBBE2k",
-  authDomain: "racking-inventory-tracker.firebaseapp.com",
-  projectId: "racking-inventory-tracker",
-  storageBucket: "racking-inventory-tracker.firebasestorage.app",
-  messagingSenderId: "61331131085",
-  appId: "1:61331131085:web:054b3b2dc731d841da7784",
-  measurementId: "G-D1NTL7ZLH1"
+  apiKey: "AIzaSyCg1Ih-IbxcoPIhAc_7mzJF2bJ9WX0EMyw",
+  authDomain: "mc-racking---test.firebaseapp.com",
+  projectId: "mc-racking---test",
+  storageBucket: "mc-racking---test.firebasestorage.app",
+  messagingSenderId: "22203078980",
+  appId: "1:22203078980:web:6547d2250dc75a8d895f11",
+  measurementId: "G-43RX41YE28"
 };
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
