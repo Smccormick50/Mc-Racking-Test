@@ -1243,6 +1243,7 @@ function exportInvoicesToExcel() {
       "Last Edited": inv.lastEditedDate || "",
       "User": inv.user || "",
       "Location": inv.location || "",
+      "Truck": inv.truck || "",
       "Line Items": lines.length,
       "Total": Number(inv.total || 0)
     };
@@ -1255,9 +1256,9 @@ function exportInvoicesToExcel() {
   const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
   wsSummary["!cols"] = [
     { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 18 },
-    { wch: 22 }, { wch: 10 }, { wch: 12 }
+    { wch: 22 }, { wch: 14 }, { wch: 10 }, { wch: 12 }
   ];
-  formatColumnAsCurrency(wsSummary, summaryRows.length, "G"); // Total
+  formatColumnAsCurrency(wsSummary, summaryRows.length, "H"); // Total
 
   // Sheet 2: Line Items (one row per line item across ALL invoices)
   const lineRows = [];
@@ -1269,6 +1270,7 @@ function exportInvoicesToExcel() {
         "Date": inv.date || "",
         "User": inv.user || "",
         "Location": inv.location || "",
+        "Truck": inv.truck || "",
         "Racking Type": l.rackingType || "",
         "Item / Part": l.partName || "",
         "Qty Used": Number(l.quantityUsed || 0),
@@ -1284,11 +1286,11 @@ function exportInvoicesToExcel() {
 
   const wsLines = XLSX.utils.json_to_sheet(lineRows);
   wsLines["!cols"] = [
-    { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 22 },
+    { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 22 }, { wch: 14 },
     { wch: 18 }, { wch: 50 }, { wch: 10 }, { wch: 11 }, { wch: 12 }
   ];
-  formatColumnAsCurrency(wsLines, lineRows.length, "H"); // Cost Each
-  formatColumnAsCurrency(wsLines, lineRows.length, "I"); // Line Total
+  formatColumnAsCurrency(wsLines, lineRows.length, "I"); // Cost Each
+  formatColumnAsCurrency(wsLines, lineRows.length, "J"); // Line Total
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsSummary, "Invoice Summary");
@@ -1394,6 +1396,7 @@ function exportArchivedMonth(monthKey) {
       "Last Edited": inv.lastEditedDate || "",
       "User": inv.user || "",
       "Location": inv.location || "",
+      "Truck": inv.truck || "",
       "Line Items": lines.length,
       "Total": Number(inv.total || 0)
     };
@@ -1404,9 +1407,9 @@ function exportArchivedMonth(monthKey) {
   const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
   wsSummary["!cols"] = [
     { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 18 },
-    { wch: 22 }, { wch: 10 }, { wch: 12 }
+    { wch: 22 }, { wch: 14 }, { wch: 10 }, { wch: 12 }
   ];
-  formatColumnAsCurrency(wsSummary, summaryRows.length, "G");
+  formatColumnAsCurrency(wsSummary, summaryRows.length, "H");
 
   const lineRows = [];
   for (const inv of sorted) {
@@ -1417,6 +1420,7 @@ function exportArchivedMonth(monthKey) {
         "Date": inv.date || "",
         "User": inv.user || "",
         "Location": inv.location || "",
+        "Truck": inv.truck || "",
         "Racking Type": l.rackingType || "",
         "Item / Part": l.partName || "",
         "Qty Used": Number(l.quantityUsed || 0),
@@ -1430,11 +1434,11 @@ function exportArchivedMonth(monthKey) {
   lineRows.push({ "Invoice #": "TOTAL", "Line Total": lineTotal });
   const wsLines = XLSX.utils.json_to_sheet(lineRows);
   wsLines["!cols"] = [
-    { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 22 },
+    { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 22 }, { wch: 14 },
     { wch: 18 }, { wch: 50 }, { wch: 10 }, { wch: 11 }, { wch: 12 }
   ];
-  formatColumnAsCurrency(wsLines, lineRows.length, "H");
   formatColumnAsCurrency(wsLines, lineRows.length, "I");
+  formatColumnAsCurrency(wsLines, lineRows.length, "J");
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsSummary, "Invoice Summary");
