@@ -1091,3 +1091,26 @@ th { position: sticky; top: 0; }
   .field-page-intro p { font-size: 13px; }
   .connection-status { font-size: 10px; }
 }
+
+/* ===== TEST SITE DESIGN PASS — 2026-10 ===== */
+.test-badge { display:inline-block; margin-left:8px; padding:3px 8px; border-radius:999px; background:#ffd400; color:#0f3a2a; font-size:11px; font-weight:900; vertical-align:middle; letter-spacing:.08em; }
+main { max-width: 1280px; }
+.dashboard { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.truck-card-collapsible { padding:0; overflow:hidden; }
+.truck-card-toggle { width:100%; min-height:64px; display:flex; align-items:center; justify-content:space-between; gap:14px; background:#f7f9f8; color:#0f3a2a; border:0; box-shadow:none; text-align:left; padding:14px 16px; }
+.truck-card-toggle:hover { background:#eef4f1; }
+.truck-card-toggle small { display:block; margin-top:4px; color:#64736d; font-weight:600; font-size:12px; }
+.truck-chevron { font-size:14px; }
+.truck-card-body { padding:0 14px 14px; background:#fff; }
+.report-filter-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:14px 0; }
+.report-filter-grid label { display:flex; flex-direction:column; }
+.report-actions { display:flex; flex-wrap:wrap; gap:10px; margin:12px 0 16px; }
+.report-actions button { width:auto; }
+.detail-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:16px 0; }
+.detail-metric { border:1px solid #dce5e1; background:#f8faf9; border-radius:12px; padding:14px; }
+.detail-metric span { display:block; color:#64736d; font-size:12px; font-weight:700; margin-bottom:4px; }
+.detail-metric strong { font-size:20px; color:#0f3a2a; }
+.status-void { color:#b42318; font-weight:800; }
+.status-active { color:#16794b; font-weight:800; }
+@media(max-width:1050px){.dashboard{grid-template-columns:repeat(3,minmax(0,1fr));}.report-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.detail-summary{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:850px){.dashboard{grid-template-columns:repeat(2,minmax(0,1fr));}.report-filter-grid{grid-template-columns:1fr}.detail-summary{grid-template-columns:1fr 1fr}.report-actions button{width:100%;}}

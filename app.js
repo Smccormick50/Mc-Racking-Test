@@ -529,7 +529,7 @@ function renderDashboard() {
   const totalQty = state.parts.reduce((sum, p) => sum + Number(p.currentQuantity || 0), 0);
   const totalValue = state.parts.reduce((sum, p) => sum + Number(p.currentQuantity || 0) * Number(p.costEach || 0), 0);
   const lowStock = state.parts.filter(p => Number(p.currentQuantity || 0) <= Number(p.lowStockThreshold || 0)).length;
-  const invoiceTotal = state.invoices.reduce((sum, inv) => sum + Number(inv.total || 0), 0);
+  const invoiceTotal = state.invoices.filter(inv => inv.status !== "VOID").reduce((sum, inv) => sum + Number(inv.total || 0), 0);
   const truckQty = state.truckInventory.reduce((sum, t) => sum + Number(t.quantity || 0), 0);
 
   qs("dashboard").innerHTML = `
@@ -628,11 +628,11 @@ function renderRackingReferences() {
   });
 }
 
+let expandedTruckCards = new Set();
+
 function renderTruckInventoryTable() {
   const container = qs("truckInventoryContainer");
   if (!container) return;
-
-  // Build a map: truckName -> array of inventory rows
   const byTruck = new Map();
   for (const t of state.truckInventory) {
     if (Number(t.quantity || 0) <= 0) continue;
@@ -640,76 +640,30 @@ function renderTruckInventoryTable() {
     if (!byTruck.has(name)) byTruck.set(name, []);
     byTruck.get(name).push(t);
   }
-
-  // Build a list of all known trucks (from settings + any unknown ones from inventory)
   const allTruckNames = new Set();
   for (const t of state.trucks) allTruckNames.add(t.name);
   for (const name of byTruck.keys()) allTruckNames.add(name);
-
   if (!allTruckNames.size) {
-    container.innerHTML = `<p class="muted" style="text-align:center;padding:20px;">No trucks set up yet. An admin can add trucks on the Admin page.</p>`;
+    container.innerHTML = `<p class="muted" style="text-align:center;padding:20px;">No trucks set up yet.</p>`;
     return;
   }
-
-  // Sort truck names alphabetically
-  const truckNames = [...allTruckNames].sort((a, b) => a.localeCompare(b));
-
+  const truckNames = [...allTruckNames].sort((a,b)=>a.localeCompare(b));
   container.innerHTML = truckNames.map(truckName => {
-    const items = (byTruck.get(truckName) || [])
-      .slice()
-      .sort((a, b) => (a.rackingType || "").localeCompare(b.rackingType || "") || (a.partName || "").localeCompare(b.partName || ""));
-
-    const truckInfo = state.trucks.find(t => t.name === truckName) || { driver: "", notes: "" };
-    const totalQty = items.reduce((s, t) => s + Number(t.quantity || 0), 0);
-    const totalValue = items.reduce((s, t) => s + Number(t.quantity || 0) * Number(t.costEach || 0), 0);
-
-    const headerLine = truckInfo.driver
-      ? `<strong>${escapeHtml(truckName)}</strong> <span class="muted">— ${escapeHtml(truckInfo.driver)}</span>`
-      : `<strong>${escapeHtml(truckName)}</strong>`;
-
-    const subtotal = items.length
-      ? `<p class="muted" style="margin:0 0 8px;">${totalQty} item${totalQty === 1 ? "" : "s"} on board · <strong>${money(totalValue)}</strong> total value</p>`
-      : `<p class="muted" style="margin:0 0 8px;">Empty — no inventory currently loaded.</p>`;
-
-    const rows = items.length
-      ? `
-        <table class="truck-inv-table">
-          <thead>
-            <tr>
-              <th>Racking Type</th>
-              <th>Item / Part</th>
-              <th style="text-align:right;">Qty</th>
-              <th style="text-align:right;">Cost Each</th>
-              <th style="text-align:right;">Line Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.map(t => {
-              const qty = Number(t.quantity || 0);
-              const cost = Number(t.costEach || 0);
-              return `
-                <tr>
-                  <td>${escapeHtml(t.rackingType || "")}</td>
-                  <td>${escapeHtml(t.partName || "")}</td>
-                  <td style="text-align:right;">${qty}</td>
-                  <td style="text-align:right;">${money(cost)}</td>
-                  <td style="text-align:right;">${money(qty * cost)}</td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
-      `
-      : "";
-
-    return `
-      <div class="truck-card">
-        <h3 style="margin:0 0 4px;">${headerLine}</h3>
-        ${subtotal}
-        ${rows}
-      </div>
-    `;
+    const items=(byTruck.get(truckName)||[]).slice().sort((a,b)=>(a.rackingType||"").localeCompare(b.rackingType||"")||(a.partName||"").localeCompare(b.partName||""));
+    const info=state.trucks.find(t=>t.name===truckName)||{driver:""};
+    const totalQty=items.reduce((s,t)=>s+Number(t.quantity||0),0);
+    const totalValue=items.reduce((s,t)=>s+Number(t.quantity||0)*Number(t.costEach||0),0);
+    const open=expandedTruckCards.has(truckName);
+    const rows=items.map(t=>{const q=Number(t.quantity||0),c=Number(t.costEach||0);return `<tr><td>${escapeHtml(t.rackingType||"")}</td><td>${escapeHtml(t.partName||"")}</td><td style="text-align:right;">${q}</td><td style="text-align:right;">${money(c)}</td><td style="text-align:right;">${money(q*c)}</td></tr>`}).join("");
+    return `<div class="truck-card truck-card-collapsible">
+      <button type="button" class="truck-card-toggle" data-truck-toggle="${escapeHtml(truckName)}" aria-expanded="${open}">
+        <span><strong>${escapeHtml(truckName)}</strong>${info.driver?` <span class="muted">— ${escapeHtml(info.driver)}</span>`:""}<small>${totalQty} piece${totalQty===1?"":"s"} • ${money(totalValue)}</small></span>
+        <span class="truck-chevron">${open?"▲":"▼"}</span>
+      </button>
+      ${open?`<div class="truck-card-body">${items.length?`<div class="table-wrap"><table class="truck-inv-table"><thead><tr><th>Racking Type</th><th>Item / Part</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Cost Each</th><th style="text-align:right;">Line Value</th></tr></thead><tbody>${rows}</tbody></table></div>`:`<p class="muted">Empty — no inventory currently loaded.</p>`}</div>`:""}
+    </div>`;
   }).join("");
+  container.querySelectorAll('[data-truck-toggle]').forEach(btn=>btn.addEventListener('click',()=>{const n=btn.dataset.truckToggle; if(expandedTruckCards.has(n)) expandedTruckCards.delete(n); else expandedTruckCards.add(n); renderTruckInventoryTable();}));
 }
 
 // "YYYY-MM" for the current local month (used to filter invoices on main page)

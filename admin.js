@@ -11,6 +11,7 @@ let adminState = {
   auditLog: [],
   deletions: [],
   receipts: [],
+  movements: [],
   meta: null
 };
 
@@ -97,6 +98,8 @@ function attachAdminListeners() {
     renderPartsTable();
     populateReceivingDropdowns();
     updateExportCounts();
+    refreshTestFeatureDropdowns();
+    renderPartDetails();
     setConnectionStatus("Live", "connected");
   }, err => {
     console.error("Parts listener error:", err);
@@ -117,6 +120,8 @@ function attachAdminListeners() {
       .filter(loc => loc.name)
       .sort((a, b) => a.name.localeCompare(b.name));
     renderLocationsList();
+    refreshTestFeatureDropdowns();
+    renderStoreHistory();
   });
 
   db.collection("settings").doc("trucks").onSnapshot(doc => {
@@ -129,6 +134,7 @@ function attachAdminListeners() {
       .sort((a, b) => a.name.localeCompare(b.name));
     renderTrucksList();
     renderAdminTruckInventory();
+    refreshTestFeatureDropdowns();
   });
 
   // Live listener: truck_inventory (for the Truck Inventory admin tab)
@@ -166,7 +172,18 @@ function attachAdminListeners() {
     snap.forEach(d => adminState.invoices.push(d.data()));
     updateExportCounts();
     renderArchivedMonths();
+    refreshTestFeatureDropdowns();
+    renderPartDetails();
+    renderStoreHistory();
+    renderInvoiceReport();
   });
+
+  db.collection("inventory_movements").orderBy("timestamp", "desc").limit(1000).onSnapshot(snap => {
+    adminState.movements = [];
+    snap.forEach(d => adminState.movements.push({ id: d.id, ...d.data() }));
+    renderMovementHistory();
+    renderPartDetails();
+  }, err => console.error("Movement listener error:", err));
 
   db.collection("receipts").orderBy("date", "desc").onSnapshot(snap => {
     adminState.receipts = [];
@@ -2531,3 +2548,95 @@ async function startAdmin() {
 document.addEventListener("DOMContentLoaded", () => {
   startAdmin();
 });
+
+// ============================================================================
+// TEST-SITE ROADMAP FEATURES (do not promote to production until approved)
+// ============================================================================
+let currentReportRows = [];
+
+function testTruckInventoryId(truck, partId) { return `${String(truck || "").replace(/[^A-Za-z0-9_-]/g, "_")}__${partId}`; }
+function uniqSorted(values) { return [...new Set(values.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b))); }
+function setOptions(id, values, firstLabel, preserve=true) {
+  const el=qs(id); if(!el) return;
+  const old=preserve?el.value:"";
+  el.innerHTML=`<option value="">${escapeHtml(firstLabel||"All")}</option>`+values.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+  if ([...el.options].some(o=>o.value===old)) el.value=old;
+}
+function partTypesAdmin(){ return uniqSorted(adminState.parts.map(p=>p.rackingType)); }
+function partsForTypeAdmin(type){ return adminState.parts.filter(p=>!type||p.rackingType===type).slice().sort((a,b)=>(a.name||"").localeCompare(b.name||"")); }
+function setPartOptions(id,type,allLabel="All parts"){
+  const el=qs(id); if(!el)return; const old=el.value;
+  const parts=partsForTypeAdmin(type);
+  el.innerHTML=`<option value="">${escapeHtml(allLabel)}</option>`+parts.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join("");
+  if([...el.options].some(o=>o.value===old)) el.value=old;
+}
+function refreshTestFeatureDropdowns(){
+  setOptions("detailRackingType",partTypesAdmin(),"— Select racking type —");
+  setPartOptions("detailPart",qs("detailRackingType")?.value||"","— Select part —");
+  setOptions("reportRackingType",partTypesAdmin(),"All racking types");
+  setPartOptions("reportPart",qs("reportRackingType")?.value||"","All parts");
+  setOptions("reportStore",uniqSorted(adminState.locations.map(l=>l.name)),"All stores");
+  setOptions("reportTruck",uniqSorted(adminState.trucks.map(t=>t.name)),"All trucks");
+  setOptions("reportUser",uniqSorted(adminState.invoices.map(i=>i.user)),"All users");
+  setOptions("historyStore",uniqSorted(adminState.locations.map(l=>l.name)),"— Select store —");
+  setOptions("countRackingType",partTypesAdmin(),"— Select racking type —");
+  setPartOptions("countPart",qs("countRackingType")?.value||"","— Select part —");
+  setOptions("countTruck",uniqSorted(adminState.trucks.map(t=>t.name)),"— Select truck —");
+  setOptions("movementPart",adminState.parts.map(p=>p.id),"All parts");
+  const mp=qs("movementPart"); if(mp){ [...mp.options].forEach(o=>{const p=adminState.parts.find(x=>x.id===o.value); if(p)o.textContent=p.name;}); }
+  setOptions("movementTruck",uniqSorted(adminState.trucks.map(t=>t.name)),"All trucks");
+  setOptions("movementType",uniqSorted(adminState.movements.map(m=>m.type)),"All transaction types");
+}
+function getInvoiceLinesAdmin(inv){ return Array.isArray(inv.lineItems)?inv.lineItems:[{rackingType:inv.rackingType,partId:inv.partId,partName:inv.partName,quantityUsed:inv.quantityUsed,costEach:inv.costEach,total:inv.total}]; }
+function dateKey(v){ if(!v)return""; const s=String(v); const iso=/^(\d{4}-\d{2}-\d{2})/.exec(s); if(iso)return iso[1]; const d=new Date(s); return Number.isNaN(d.getTime())?"":d.toISOString().slice(0,10); }
+
+function renderPartDetails(){
+  const out=qs("partDetailSummary"), locOut=qs("partDetailLocations"); if(!out||!locOut)return;
+  const partId=qs("detailPart")?.value||""; const p=adminState.parts.find(x=>x.id===partId);
+  if(!p){out.innerHTML="";locOut.innerHTML='<p class="muted">Select a part to view its complete inventory and usage picture.</p>';return;}
+  const truckRows=adminState.truckInventory.filter(t=>t.partId===partId); const truckQty=truckRows.reduce((s,t)=>s+Number(t.quantity||0),0);
+  let used=0, spend=0; const byLoc=new Map();
+  adminState.invoices.filter(i=>i.status!=="VOID").forEach(inv=>getInvoiceLinesAdmin(inv).forEach(li=>{if(li.partId===partId){const q=Number(li.quantityUsed||0); used+=q; spend+=Number(li.total||q*Number(li.costEach||0)); byLoc.set(inv.location,(byLoc.get(inv.location)||0)+q);}}));
+  const wh=Number(p.currentQuantity||0), cost=Number(p.costEach||0);
+  out.innerHTML=`<div class="detail-metric"><span>Warehouse Qty</span><strong>${wh}</strong></div><div class="detail-metric"><span>Truck Qty</span><strong>${truckQty}</strong></div><div class="detail-metric"><span>Total On Hand</span><strong>${wh+truckQty}</strong></div><div class="detail-metric"><span>Inventory Value</span><strong>${money((wh+truckQty)*cost)}</strong></div><div class="detail-metric"><span>Pieces Invoiced</span><strong>${used}</strong></div><div class="detail-metric"><span>Invoiced Value</span><strong>${money(spend)}</strong></div><div class="detail-metric"><span>Low Stock Level</span><strong>${Number(p.lowStockThreshold||0)}</strong></div><div class="detail-metric"><span>Current Cost</span><strong>${money(cost)}</strong></div>`;
+  const rows=[...byLoc.entries()].sort((a,b)=>b[1]-a[1]);
+  locOut.innerHTML=`<h3>Usage by Store</h3>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Store</th><th>Pieces Used</th></tr></thead><tbody>${rows.map(([l,q])=>`<tr><td>${escapeHtml(l||"—")}</td><td>${q}</td></tr>`).join("")}</tbody></table></div>`:'<p class="muted">No invoice usage recorded for this part yet.</p>'}`;
+}
+
+function buildReportRows(){
+  const type=qs("reportRackingType")?.value||"", partId=qs("reportPart")?.value||"", store=qs("reportStore")?.value||"", truck=qs("reportTruck")?.value||"", wo=(qs("reportWorkOrder")?.value||"").trim().toLowerCase(), po=(qs("reportPO")?.value||"").trim().toLowerCase(), user=qs("reportUser")?.value||"", from=qs("reportFrom")?.value||"", to=qs("reportTo")?.value||"";
+  const rows=[];
+  adminState.invoices.forEach(inv=>{ const d=dateKey(inv.date); if(store&&inv.location!==store)return;if(truck&&inv.truck!==truck)return;if(user&&inv.user!==user)return;if(wo&&!String(inv.workOrderNumber||"").toLowerCase().includes(wo))return;if(po&&!String(inv.poNumber||"").toLowerCase().includes(po))return;if(from&&d<from)return;if(to&&d>to)return;
+    getInvoiceLinesAdmin(inv).forEach(li=>{if(type&&li.rackingType!==type)return;if(partId&&li.partId!==partId)return;rows.push({date:d,invoiceNumber:inv.invoiceNumber||"",location:inv.location||"",truck:inv.truck||"",rackingType:li.rackingType||"",partId:li.partId||"",partName:li.partName||"",qty:Number(li.quantityUsed||0),costEach:Number(li.costEach||0),total:Number(li.total||0),workOrder:inv.workOrderNumber||"",po:inv.poNumber||"",user:inv.user||"",status:inv.status||"ACTIVE"});}); });
+  return rows;
+}
+function renderInvoiceReport(){
+  const body=qs("reportBody"), summary=qs("reportSummary"); if(!body||!summary)return; currentReportRows=buildReportRows();
+  const qty=currentReportRows.filter(r=>r.status!=="VOID").reduce((s,r)=>s+r.qty,0), val=currentReportRows.filter(r=>r.status!=="VOID").reduce((s,r)=>s+r.total,0), invoices=new Set(currentReportRows.map(r=>r.invoiceNumber)).size;
+  summary.innerHTML=`<div class="detail-metric"><span>Invoices</span><strong>${invoices}</strong></div><div class="detail-metric"><span>Pieces</span><strong>${qty}</strong></div><div class="detail-metric"><span>Value</span><strong>${money(val)}</strong></div><div class="detail-metric"><span>Rows</span><strong>${currentReportRows.length}</strong></div>`;
+  body.innerHTML=currentReportRows.length?currentReportRows.map(r=>`<tr><td>${escapeHtml(r.date)}</td><td>${escapeHtml(r.invoiceNumber)}</td><td>${escapeHtml(r.location)}</td><td>${escapeHtml(r.truck)}</td><td>${escapeHtml(r.rackingType)}</td><td>${escapeHtml(r.partName)}</td><td>${r.qty}</td><td>${escapeHtml(r.workOrder)}</td><td>${escapeHtml(r.po)}</td><td>${escapeHtml(r.user)}</td><td class="${r.status==='VOID'?'status-void':'status-active'}">${escapeHtml(r.status)}</td><td>${r.status==='VOID'?'—':`<button type="button" class="danger report-void-btn" data-void-invoice="${escapeHtml(r.invoiceNumber)}">Void</button>`}</td></tr>`).join(""):'<tr><td colspan="12" class="muted" style="text-align:center;padding:20px;">No matching invoice lines.</td></tr>';
+  body.querySelectorAll('[data-void-invoice]').forEach(b=>b.addEventListener('click',()=>voidInvoice(b.dataset.voidInvoice)));
+}
+function clearInvoiceReport(){ ["reportWorkOrder","reportPO","reportFrom","reportTo"].forEach(id=>{if(qs(id))qs(id).value=""}); ["reportRackingType","reportPart","reportStore","reportTruck","reportUser"].forEach(id=>{if(qs(id))qs(id).value=""}); setPartOptions("reportPart","","All parts"); renderInvoiceReport(); }
+function exportFilteredReportExcel(){ if(!currentReportRows.length)return showAdminMessage("No matching results to export.",true); const data=currentReportRows.map(r=>({Date:r.date,"Invoice #":r.invoiceNumber,Store:r.location,Truck:r.truck,"Racking Type":r.rackingType,Part:r.partName,Qty:r.qty,"Cost Each":r.costEach,Total:r.total,"Work Order":r.workOrder,"PO #":r.po,User:r.user,Status:r.status})); const ws=XLSX.utils.json_to_sheet(data), wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Filtered Invoice Lines");XLSX.writeFile(wb,`mc-racking-filtered-invoices-${new Date().toISOString().slice(0,10)}.xlsx`); }
+function exportFilteredReportPdf(){ if(!currentReportRows.length)return showAdminMessage("No matching results to export.",true); const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"landscape"});doc.setFontSize(16);doc.text("Mc Racking - Filtered Invoice Report",14,14);doc.autoTable({startY:20,head:[["Date","Invoice","Store","Truck","Type","Part","Qty","WO","PO","User","Status"]],body:currentReportRows.map(r=>[r.date,r.invoiceNumber,r.location,r.truck,r.rackingType,r.partName,r.qty,r.workOrder,r.po,r.user,r.status]),styles:{fontSize:7}});doc.save(`mc-racking-filtered-invoices-${new Date().toISOString().slice(0,10)}.pdf`); }
+
+function renderStoreHistory(){ const out=qs("storeHistoryResults"), sum=qs("storeHistorySummary"); if(!out||!sum)return; const store=qs("historyStore")?.value||""; if(!store){sum.innerHTML="";out.innerHTML='<p class="muted">Select a store to view its history.</p>';return;} const invs=adminState.invoices.filter(i=>i.location===store).sort((a,b)=>dateKey(b.date).localeCompare(dateKey(a.date))); const active=invs.filter(i=>i.status!=="VOID"); const qty=active.reduce((s,i)=>s+getInvoiceLinesAdmin(i).reduce((x,l)=>x+Number(l.quantityUsed||0),0),0), val=active.reduce((s,i)=>s+Number(i.total||0),0); sum.innerHTML=`<div class="detail-metric"><span>Invoices</span><strong>${active.length}</strong></div><div class="detail-metric"><span>Pieces Used</span><strong>${qty}</strong></div><div class="detail-metric"><span>Invoice Value</span><strong>${money(val)}</strong></div>`; out.innerHTML=invs.length?`<div class="table-wrap"><table><thead><tr><th>Date</th><th>Invoice</th><th>Truck</th><th>Pieces</th><th>Value</th><th>User</th><th>Status</th></tr></thead><tbody>${invs.map(i=>`<tr><td>${escapeHtml(dateKey(i.date))}</td><td>${escapeHtml(i.invoiceNumber||"")}</td><td>${escapeHtml(i.truck||"")}</td><td>${getInvoiceLinesAdmin(i).reduce((s,l)=>s+Number(l.quantityUsed||0),0)}</td><td>${money(i.total)}</td><td>${escapeHtml(i.user||"")}</td><td class="${i.status==='VOID'?'status-void':'status-active'}">${escapeHtml(i.status||'ACTIVE')}</td></tr>`).join("")}</tbody></table></div>`:'<p class="muted">No invoices found for this store.</p>'; }
+
+function renderMovementHistory(){ const body=qs("movementBody"); if(!body)return; const part=qs("movementPart")?.value||"",truck=qs("movementTruck")?.value||"",type=qs("movementType")?.value||""; const rows=adminState.movements.filter(m=>(!part||m.partId===part)&&(!truck||m.truck===truck)&&(!type||m.type===type)).slice(0,500); body.innerHTML=rows.length?rows.map(m=>`<tr><td>${escapeHtml(formatWhen(m.timestamp))}</td><td>${escapeHtml(m.type||"")}</td><td>${escapeHtml(m.partName||m.partId||"")}</td><td>${Number(m.quantityChange||0)>0?"+":""}${Number(m.quantityChange||0)}</td><td>${escapeHtml(m.truck||"Warehouse")}</td><td>${escapeHtml([m.location,m.invoiceNumber].filter(Boolean).join(" / "))}</td><td>${escapeHtml(m.user||m.admin||"")}</td></tr>`).join(""):'<tr><td colspan="7" class="muted" style="text-align:center;padding:20px;">No matching transactions.</td></tr>'; }
+
+async function savePhysicalCount(e){ e.preventDefault(); if(!requireAdminUser())return; const scope=qs("countScope").value,truck=qs("countTruck").value,partId=qs("countPart").value,counted=Number(qs("countQty").value); if(!partId||Number.isNaN(counted)||counted<0)return showAdminMessage("Select a part and enter a valid physical count.",true); if(scope==="truck"&&!truck)return showAdminMessage("Select a truck.",true); const p=adminState.parts.find(x=>x.id===partId); if(!p)return;
+  try{ await db.runTransaction(async tx=>{const now=firebase.firestore.FieldValue.serverTimestamp(); if(scope==="warehouse"){const ref=db.collection("parts").doc(partId),doc=await tx.get(ref);if(!doc.exists)throw new Error("Part not found");const before=Number(doc.data().currentQuantity||0),variance=counted-before;tx.update(ref,{currentQuantity:counted,updatedAt:now});tx.set(db.collection("inventory_movements").doc(),{timestamp:now,type:"PHYSICAL_COUNT_WAREHOUSE",partId,partName:p.name,rackingType:p.rackingType,quantityChange:variance,beforeQuantity:before,afterQuantity:counted,user:getAdminUser()});}else{const ref=db.collection("truck_inventory").doc(testTruckInventoryId(truck,partId)),doc=await tx.get(ref);const before=doc.exists?Number(doc.data().quantity||0):0,variance=counted-before;tx.set(ref,{truck,partId,partName:p.name,rackingType:p.rackingType,costEach:Number(p.costEach||0),quantity:counted,updatedAt:now},{merge:true});tx.set(db.collection("inventory_movements").doc(),{timestamp:now,type:"PHYSICAL_COUNT_TRUCK",partId,partName:p.name,rackingType:p.rackingType,quantityChange:variance,beforeQuantity:before,afterQuantity:counted,truck,user:getAdminUser()});}}); await recordAudit("PHYSICAL_COUNT",p.name,{scope,truck:scope==="truck"?truck:"",counted}); showAdminMessage(`Physical count saved for ${p.name}.`,false); qs("countQty").value="";}catch(err){console.error(err);showAdminMessage("Count failed: "+err.message,true);} }
+
+async function voidInvoice(invoiceNumber){ if(!requireAdminUser())return; const reason=prompt(`Void ${invoiceNumber}?\n\nEnter the reason for the correction. Inventory will be returned to the truck and the invoice will remain in history marked VOID.`); if(reason===null)return; if(!reason.trim())return showAdminMessage("A void reason is required.",true); try{await db.runTransaction(async tx=>{const invRef=db.collection("invoices").doc(invoiceNumber),invDoc=await tx.get(invRef);if(!invDoc.exists)throw new Error("Invoice not found");const inv=invDoc.data();if(inv.status==="VOID")throw new Error("Invoice is already voided");const lines=getInvoiceLinesAdmin(inv);const grouped=new Map();lines.forEach(l=>grouped.set(l.partId,(grouped.get(l.partId)||0)+Number(l.quantityUsed||0)));const reads=[];for(const [partId,qty] of grouped){const ref=db.collection("truck_inventory").doc(testTruckInventoryId(inv.truck||"",partId)),doc=await tx.get(ref);reads.push({partId,qty,ref,doc});}const now=firebase.firestore.FieldValue.serverTimestamp();for(const r of reads){const li=lines.find(l=>l.partId===r.partId)||{},before=r.doc.exists?Number(r.doc.data().quantity||0):0;tx.set(r.ref,{truck:inv.truck||"",partId:r.partId,partName:li.partName||"",rackingType:li.rackingType||"",costEach:Number(li.costEach||0),quantity:before+r.qty,updatedAt:now},{merge:true});tx.set(db.collection("inventory_movements").doc(),{timestamp:now,type:"VOID_INVOICE_RETURN",invoiceNumber,partId:r.partId,partName:li.partName||"",rackingType:li.rackingType||"",quantityChange:r.qty,beforeQuantity:before,afterQuantity:before+r.qty,truck:inv.truck||"",location:inv.location||"",user:getAdminUser()});}tx.update(invRef,{status:"VOID",voidReason:reason.trim(),voidedBy:getAdminUser(),voidedAt:now,updatedAt:now});tx.set(db.collection("audit_log").doc(),{timestamp:now,admin:getAdminUser(),action:"VOID_INVOICE",target:invoiceNumber,details:{reason:reason.trim(),truck:inv.truck||"",location:inv.location||""}});});showAdminMessage(`${invoiceNumber} voided and inventory returned to the truck.`,false);}catch(err){console.error(err);showAdminMessage("Void failed: "+err.message,true);} }
+
+function setupTestRoadmapFeatures(){
+  refreshTestFeatureDropdowns();
+  qs("detailRackingType")?.addEventListener("change",()=>{setPartOptions("detailPart",qs("detailRackingType").value,"— Select part —");renderPartDetails();}); qs("detailPart")?.addEventListener("change",renderPartDetails);
+  qs("reportRackingType")?.addEventListener("change",()=>{setPartOptions("reportPart",qs("reportRackingType").value,"All parts");renderInvoiceReport();}); ["reportPart","reportStore","reportTruck","reportUser","reportFrom","reportTo"].forEach(id=>qs(id)?.addEventListener("change",renderInvoiceReport)); ["reportWorkOrder","reportPO"].forEach(id=>qs(id)?.addEventListener("input",renderInvoiceReport)); qs("runReportBtn")?.addEventListener("click",renderInvoiceReport);qs("clearReportBtn")?.addEventListener("click",clearInvoiceReport);qs("exportReportExcelBtn")?.addEventListener("click",exportFilteredReportExcel);qs("exportReportPdfBtn")?.addEventListener("click",exportFilteredReportPdf);
+  qs("historyStore")?.addEventListener("change",renderStoreHistory);
+  qs("countScope")?.addEventListener("change",()=>{qs("countTruckLabel").style.display=qs("countScope").value==="truck"?"":"none";});qs("countRackingType")?.addEventListener("change",()=>setPartOptions("countPart",qs("countRackingType").value,"— Select part —"));qs("physicalCountForm")?.addEventListener("submit",savePhysicalCount);
+  ["movementPart","movementTruck","movementType"].forEach(id=>qs(id)?.addEventListener("change",renderMovementHistory));
+}
+
+document.addEventListener("DOMContentLoaded", setupTestRoadmapFeatures);

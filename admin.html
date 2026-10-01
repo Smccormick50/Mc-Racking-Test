@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Mc Racking — Admin</title>
+  <title>Mc Racking — TEST Admin</title>
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0f3a2a">
@@ -19,7 +19,7 @@
     <div class="brand">
       <img src="mc-logo.png" alt="Mc Racking" class="brand-logo">
       <div class="brand-text">
-        <h1>Mc Racking — Admin</h1>
+        <h1>Mc Racking — Admin <span class="test-badge">TEST</span></h1>
         <p>Manage parts, users, locations, and view the audit log.</p>
       </div>
     </div>
@@ -42,6 +42,11 @@
       <button type="button" class="tab-btn" data-tab="trucks">Trucks</button>
       <button type="button" class="tab-btn" data-tab="truckInv">Truck Inventory</button>
       <button type="button" class="tab-btn" data-tab="receiving">Receiving</button>
+      <button type="button" class="tab-btn" data-tab="insights">Part Details</button>
+      <button type="button" class="tab-btn" data-tab="reports">Invoice Search</button>
+      <button type="button" class="tab-btn" data-tab="storeHistory">Store History</button>
+      <button type="button" class="tab-btn" data-tab="counts">Physical Count</button>
+      <button type="button" class="tab-btn" data-tab="movements">Transactions</button>
         <button type="button" class="tab-btn" data-tab="recovery">Recovery</button>
         <button type="button" class="tab-btn" data-tab="export">Export</button>
         <button type="button" class="tab-btn" data-tab="archived">Archived Invoices</button>
@@ -267,6 +272,86 @@
           <h2>Receiving History <span class="live-badge">Live</span></h2>
           <p class="muted">Every supplier order recorded. Click an order to see all its line items.</p>
           <div id="receiptsContainer"></div>
+        </div>
+      </section>
+
+
+      <!-- PART DETAILS tab -->
+      <section id="tab-insights" class="tab-panel">
+        <div class="panel">
+          <h2>Part Details & Usage</h2>
+          <p class="muted">Select a racking type and part to see warehouse stock, truck stock, inventory value, invoice usage, and locations used.</p>
+          <div class="grid-form">
+            <label>Racking Type<select id="detailRackingType"></select></label>
+            <label class="wide">Part<select id="detailPart"></select></label>
+          </div>
+          <div id="partDetailSummary" class="detail-summary"></div>
+          <div id="partDetailLocations"></div>
+        </div>
+      </section>
+
+      <!-- INVOICE SEARCH / REPORTING tab -->
+      <section id="tab-reports" class="tab-panel">
+        <div class="panel">
+          <h2>Invoice Search & Reporting</h2>
+          <p class="muted">Filter invoice history by part, store, truck, work order, PO, user, or date range. Export the filtered results.</p>
+          <div class="report-filter-grid">
+            <label>Racking Type<select id="reportRackingType"><option value="">All racking types</option></select></label>
+            <label>Part<select id="reportPart"><option value="">All parts</option></select></label>
+            <label>Store<select id="reportStore"><option value="">All stores</option></select></label>
+            <label>Truck<select id="reportTruck"><option value="">All trucks</option></select></label>
+            <label>Work Order<input id="reportWorkOrder" type="text" placeholder="Work order #"></label>
+            <label>PO #<input id="reportPO" type="text" placeholder="PO #"></label>
+            <label>User<select id="reportUser"><option value="">All users</option></select></label>
+            <label>From Date<input id="reportFrom" type="date"></label>
+            <label>To Date<input id="reportTo" type="date"></label>
+          </div>
+          <div class="report-actions">
+            <button type="button" id="runReportBtn">Search</button>
+            <button type="button" class="secondary" id="clearReportBtn">Clear</button>
+            <button type="button" class="secondary" id="exportReportExcelBtn">Export Excel</button>
+            <button type="button" class="secondary" id="exportReportPdfBtn">Export PDF</button>
+          </div>
+          <div id="reportSummary" class="detail-summary"></div>
+          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Invoice</th><th>Store</th><th>Truck</th><th>Racking Type</th><th>Part</th><th>Qty</th><th>WO</th><th>PO</th><th>User</th><th>Status</th><th>Action</th></tr></thead><tbody id="reportBody"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- STORE HISTORY tab -->
+      <section id="tab-storeHistory" class="tab-panel">
+        <div class="panel">
+          <h2>Store Racking History</h2>
+          <p class="muted">Choose a store to see every racking invoice and total quantity used there.</p>
+          <div class="grid-form"><label class="wide">Store / Location<select id="historyStore"></select></label></div>
+          <div id="storeHistorySummary" class="detail-summary"></div>
+          <div id="storeHistoryResults"></div>
+        </div>
+      </section>
+
+      <!-- PHYSICAL COUNT tab -->
+      <section id="tab-counts" class="tab-panel">
+        <div class="panel">
+          <h2>Physical Inventory Count</h2>
+          <p class="muted">Enter the quantity physically counted. The app records the variance as an inventory transaction instead of silently changing stock.</p>
+          <form id="physicalCountForm" class="grid-form">
+            <label>Inventory Location<select id="countScope"><option value="warehouse">Warehouse</option><option value="truck">Truck</option></select></label>
+            <label id="countTruckLabel" style="display:none;">Truck<select id="countTruck"></select></label>
+            <label>Racking Type<select id="countRackingType"></select></label>
+            <label class="wide">Part<select id="countPart"></select></label>
+            <label>Physical Count<input id="countQty" type="number" min="0" step="1" required></label>
+            <button type="submit">Save Count & Variance</button>
+          </form>
+          <div id="countPreview" class="message"></div>
+        </div>
+      </section>
+
+      <!-- TRANSACTION HISTORY tab -->
+      <section id="tab-movements" class="tab-panel">
+        <div class="panel">
+          <h2>Inventory Transaction History <span class="live-badge">Live</span></h2>
+          <p class="muted">Chain of custody for warehouse transfers, truck usage, counts, returns, receiving, and invoice activity.</p>
+          <div class="report-filter-grid"><label>Part<select id="movementPart"><option value="">All parts</option></select></label><label>Truck<select id="movementTruck"><option value="">All trucks</option></select></label><label>Type<select id="movementType"><option value="">All transaction types</option></select></label></div>
+          <div class="table-wrap"><table><thead><tr><th>When</th><th>Type</th><th>Part</th><th>Qty Change</th><th>Warehouse/Truck</th><th>Store / Invoice</th><th>User</th></tr></thead><tbody id="movementBody"></tbody></table></div>
         </div>
       </section>
 

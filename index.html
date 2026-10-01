@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Mc Racking</title>
+  <title>Mc Racking — TEST</title>
 
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0f3a2a">
@@ -23,7 +23,7 @@
     <div class="brand">
       <img src="mc-logo.png" alt="Mc Racking" class="brand-logo">
       <div class="brand-text">
-        <h1>Mc Racking</h1>
+        <h1>Mc Racking <span class="test-badge">TEST</span></h1>
         <p>Track racking quantities, use inventory, and create PDF invoices.</p>
       </div>
     </div>
@@ -44,7 +44,7 @@
   <main>
     <div class="field-page-intro">
       <div>
-        <span class="eyebrow">FIELD OPERATIONS</span>
+        <span class="eyebrow">FIELD OPERATIONS · TEST SITE</span>
         <h2>Racking Inventory</h2>
         <p>Move material to trucks, invoice parts used at stores, and check current inventory.</p>
       </div>
@@ -78,11 +78,7 @@
       <div id="checkoutMessage" class="message"></div>
     </section>
 
-    <section class="panel supporting-panel">
-      <div class="section-heading"><span class="section-icon">▤</span><div><span class="section-kicker">ON THE TRUCKS</span><h2>Truck Inventory</h2></div></div>
-      <p class="muted">What's currently loaded on each truck. Items deduct as invoices are created against that truck.</p>
-      <div id="truckInventoryContainer"></div>
-    </section>
+
 
     <section class="panel workflow-panel invoice-panel">
       <div class="section-heading"><span class="section-icon">✓</span><div><span class="section-kicker">PARTS USED AT STORE</span><h2 id="usageHeading">Create Store Invoice</h2></div></div>
@@ -107,6 +103,12 @@
         <button id="cancelEditButton" type="button" class="secondary" style="display:none;">Cancel Edit</button>
       </form>
       <div id="message" class="message"></div>
+    </section>
+
+    <section class="panel supporting-panel">
+      <div class="section-heading"><span class="section-icon">▤</span><div><span class="section-kicker">ON THE TRUCKS</span><h2>Truck Inventory</h2></div></div>
+      <p class="muted">What's currently loaded on each truck. Items deduct as invoices are created against that truck.</p>
+      <div id="truckInventoryContainer"></div>
     </section>
 
     <section class="panel supporting-panel">
