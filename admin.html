@@ -41,6 +41,7 @@
       <button type="button" class="tab-btn" data-tab="locations">Store Locations</button>
       <button type="button" class="tab-btn" data-tab="trucks">Trucks</button>
       <button type="button" class="tab-btn" data-tab="truckInv">Truck Inventory</button>
+      <button type="button" class="tab-btn" data-tab="receiving">Receiving</button>
         <button type="button" class="tab-btn" data-tab="recovery">Recovery</button>
         <button type="button" class="tab-btn" data-tab="export">Export</button>
         <button type="button" class="tab-btn" data-tab="archived">Archived Invoices</button>
@@ -223,6 +224,52 @@
         </div>
       </section>
 
+      <!-- RECEIVING tab -->
+      <section id="tab-receiving" class="tab-panel">
+        <div class="panel">
+          <h2>Record New Racking Received</h2>
+          <p class="muted">Record an incoming supplier order. You can add multiple line items to one receipt — they share the same date, supplier, and PO #. Inventory quantities go up and each part's active cost updates. Existing invoices keep their original cost.</p>
+          <form id="receivingForm">
+            <!-- Order header (shared across all line items) -->
+            <div class="grid-form" style="margin-bottom: 8px;">
+              <label>
+                Date Received
+                <input id="receiptDate" type="date" required>
+              </label>
+              <label>
+                Supplier
+                <input id="receiptSupplier" type="text" placeholder="e.g. Ridg-U-Rak">
+              </label>
+              <label>
+                PO / Invoice #
+                <input id="receiptPO" type="text" placeholder="e.g. PO-44821">
+              </label>
+              <label class="wide">
+                Notes (optional)
+                <input id="receiptNotes" type="text" placeholder="e.g. Box folder, PDF location, or extra notes">
+              </label>
+            </div>
+
+            <!-- Line items list -->
+            <h3 style="margin-top: 18px; margin-bottom: 8px;">Line Items</h3>
+            <div id="receiptLineItems"></div>
+            <button type="button" id="addReceiptLineBtn" class="secondary" style="margin-top: 8px;">+ Add Line Item</button>
+
+            <!-- Order total + submit -->
+            <div style="margin-top: 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+              <div id="receiptOrderTotal" class="muted"></div>
+              <button type="submit" id="receiptSubmit">Record Receipt</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="panel">
+          <h2>Receiving History <span class="live-badge">Live</span></h2>
+          <p class="muted">Every supplier order recorded. Click an order to see all its line items.</p>
+          <div id="receiptsContainer"></div>
+        </div>
+      </section>
+
       <!-- RECOVERY tab -->
       <section id="tab-recovery" class="tab-panel">
         <div class="panel">
@@ -274,20 +321,8 @@
       <section id="tab-archived" class="tab-panel">
         <div class="panel">
           <h2>Archived Invoices <span class="live-badge">Live</span></h2>
-          <p class="muted">Invoices from past months, grouped by calendar month. The current month's invoices appear on the main page. Click <strong>Download .xlsx</strong> to export a month's invoices into a spreadsheet — files are generated on demand from live Firestore data, nothing is ever deleted.</p>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Month</th>
-                  <th>Invoices</th>
-                  <th>Total</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="archivedMonthsBody"></tbody>
-            </table>
-          </div>
+          <p class="muted">Invoices from past months, grouped by calendar month. The current month's invoices appear on the main page. Click any month to view its invoices; click <strong>Download .xlsx</strong> to export that month's invoices into a spreadsheet with full line-item detail. Files are generated on demand from live Firestore data, nothing is ever deleted.</p>
+          <div id="archivedMonthsContainer"></div>
         </div>
       </section>
 
@@ -327,6 +362,10 @@
 
   <!-- SheetJS for Excel export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- jsPDF for PDF download from archived invoices -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
   <!-- Config + seed data (used only for first-run seeding) -->
   <script src="firebase-config.js"></script>

@@ -42,11 +42,19 @@
   </header>
 
   <main>
+    <div class="field-page-intro">
+      <div>
+        <span class="eyebrow">FIELD OPERATIONS</span>
+        <h2>Racking Inventory</h2>
+        <p>Move material to trucks, invoice parts used at stores, and check current inventory.</p>
+      </div>
+    </div>
+
     <section id="dashboard" class="dashboard"></section>
 
 
-    <section class="panel">
-      <h2>Inventory Checkout: Warehouse → Truck</h2>
+    <section class="panel workflow-panel transfer-panel">
+      <div class="section-heading"><span class="section-icon">⇄</span><div><span class="section-kicker">INVENTORY TRANSFER</span><h2>Warehouse → Truck</h2></div></div>
       <p class="muted">Move material from warehouse inventory onto a truck. Warehouse quantity goes down and truck quantity goes up.</p>
       <form id="checkoutForm" class="grid-form">
         <label>
@@ -70,14 +78,14 @@
       <div id="checkoutMessage" class="message"></div>
     </section>
 
-    <section class="panel">
-      <h2>Truck Inventory</h2>
+    <section class="panel supporting-panel">
+      <div class="section-heading"><span class="section-icon">▤</span><div><span class="section-kicker">ON THE TRUCKS</span><h2>Truck Inventory</h2></div></div>
       <p class="muted">What's currently loaded on each truck. Items deduct as invoices are created against that truck.</p>
       <div id="truckInventoryContainer"></div>
     </section>
 
-    <section class="panel">
-      <h2 id="usageHeading">Use Truck Inventory & Create Store Invoice</h2>
+    <section class="panel workflow-panel invoice-panel">
+      <div class="section-heading"><span class="section-icon">✓</span><div><span class="section-kicker">PARTS USED AT STORE</span><h2 id="usageHeading">Create Store Invoice</h2></div></div>
       <form id="usageForm" class="grid-form">
         <label>
           Store / Location
@@ -101,8 +109,8 @@
       <div id="message" class="message"></div>
     </section>
 
-    <section class="panel">
-      <h2>Warehouse Inventory</h2>
+    <section class="panel supporting-panel">
+      <div class="section-heading"><span class="section-icon">▦</span><div><span class="section-kicker">STOCK ON HAND</span><h2>Warehouse Inventory</h2></div></div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -121,8 +129,8 @@
       </div>
     </section>
 
-    <section class="panel">
-      <h2>This Month's Invoices <span id="invoiceLiveBadge" class="live-badge">Live</span></h2>
+    <section class="panel supporting-panel">
+      <div class="section-heading"><span class="section-icon">▧</span><div><span class="section-kicker">RECENT ACTIVITY</span><h2>This Month's Invoices <span id="invoiceLiveBadge" class="live-badge">Live</span></h2></div></div>
       <p class="muted">Only invoices from the current calendar month are shown here. Older invoices are available in <strong>Admin → Archived Invoices</strong>.</p>
       <div class="table-wrap">
         <table>
@@ -143,6 +151,12 @@
       </div>
       <p id="invoiceListFooter" class="muted" style="margin-top:12px;display:none;"></p>
       <div id="invoiceDetails"></div>
+    </section>
+
+    <section class="panel supporting-panel">
+      <div class="section-heading"><span class="section-icon">i</span><div><span class="section-kicker">REFERENCE</span><h2>Racking Type Reference</h2></div></div>
+      <p class="muted">Visual specifications for each racking type. Click a type to view its reference document.</p>
+      <div id="rackingReferenceContainer"></div>
     </section>
   </main>
 

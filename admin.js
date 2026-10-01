@@ -10,6 +10,7 @@ let adminState = {
   invoices: [],
   auditLog: [],
   deletions: [],
+  receipts: [],
   meta: null
 };
 
@@ -94,6 +95,7 @@ function attachAdminListeners() {
       return an - bn;
     });
     renderPartsTable();
+    populateReceivingDropdowns();
     updateExportCounts();
     setConnectionStatus("Live", "connected");
   }, err => {
@@ -164,6 +166,14 @@ function attachAdminListeners() {
     snap.forEach(d => adminState.invoices.push(d.data()));
     updateExportCounts();
     renderArchivedMonths();
+  });
+
+  db.collection("receipts").orderBy("date", "desc").onSnapshot(snap => {
+    adminState.receipts = [];
+    snap.forEach(d => adminState.receipts.push({ id: d.id, ...d.data() }));
+    renderReceiptsTable();
+  }, err => {
+    console.error("Receipts listener error:", err);
   });
 }
 
@@ -1343,35 +1353,553 @@ function groupArchivedInvoices() {
   return groups;
 }
 
+// Track which month/invoice are expanded in the Archived Invoices view
+let expandedArchivedMonth = null;
+let expandedArchivedInvoice = null;
+
 function renderArchivedMonths() {
-  const body = qs("archivedMonthsBody");
-  if (!body) return;
+  const container = qs("archivedMonthsContainer");
+  if (!container) return;
 
   const groups = groupArchivedInvoices();
   if (!groups.size) {
-    body.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center;padding:20px;">No archived months yet. Invoices from previous calendar months will appear here.</td></tr>`;
+    container.innerHTML = `<p class="muted" style="text-align:center;padding:20px;">No archived months yet. Invoices from previous calendar months will appear here.</p>`;
     return;
   }
 
   const keys = [...groups.keys()].sort().reverse();
-  body.innerHTML = keys.map(key => {
+  container.innerHTML = keys.map(key => {
     const invs = groups.get(key);
     const total = invs.reduce((s, inv) => s + Number(inv.total || 0), 0);
+    const isOpen = expandedArchivedMonth === key;
+    const arrow = isOpen ? "▼" : "▶";
+
+    let body = "";
+    if (isOpen) {
+      // Sort invoices newest first within the month
+      const sorted = invs.slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+      body = `
+        <div class="archived-month-body">
+          <div style="margin-bottom:10px;">
+            <button type="button" data-export-month="${escapeHtml(key)}">Download .xlsx for ${escapeHtml(monthLabel(key))}</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice #</th>
+                  <th>Date</th>
+                  <th>User</th>
+                  <th>Location</th>
+                  <th>Truck</th>
+                  <th>Items</th>
+                  <th>Total</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sorted.map(inv => {
+                  const lines = Array.isArray(inv.lineItems) ? inv.lineItems : [];
+                  const isInvOpen = expandedArchivedInvoice === inv.invoiceNumber;
+                  const rows = [`
+                    <tr>
+                      <td>
+                        <strong>${escapeHtml(inv.invoiceNumber || "")}</strong>
+                        ${inv.isDamageWriteOff ? `<br><span class="damage-badge">DAMAGE</span>` : ""}
+                      </td>
+                      <td>${escapeHtml(formatDate(inv.date))}</td>
+                      <td>${escapeHtml(inv.user || "—")}</td>
+                      <td>${escapeHtml(inv.location || "—")}</td>
+                      <td>${escapeHtml(inv.truck || "—")}</td>
+                      <td>${lines.length}</td>
+                      <td><strong>${money(inv.total)}</strong></td>
+                      <td>
+                        <div class="action-buttons">
+                          <button type="button" class="secondary" data-archived-action="toggle" data-invnum="${escapeHtml(inv.invoiceNumber)}">${isInvOpen ? "Hide" : "View"}</button>
+                          <button type="button" data-archived-action="pdf" data-invnum="${escapeHtml(inv.invoiceNumber)}">PDF</button>
+                        </div>
+                      </td>
+                    </tr>
+                  `];
+                  if (isInvOpen) {
+                    rows.push(`
+                      <tr>
+                        <td colspan="8" style="background:#f8fafc;">
+                          <table style="margin:8px 0;">
+                            <thead>
+                              <tr>
+                                <th>Racking Type</th><th>Item / Part</th><th>Qty</th><th>Cost Each</th><th>Line Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${lines.map(l => `
+                                <tr>
+                                  <td>${escapeHtml(l.rackingType || "")}</td>
+                                  <td>${escapeHtml(l.partName || "")}</td>
+                                  <td>${Number(l.quantityUsed || 0)}</td>
+                                  <td>${money(l.costEach)}</td>
+                                  <td>${money(l.total)}</td>
+                                </tr>
+                              `).join("")}
+                            </tbody>
+                          </table>
+                          ${inv.notes ? `<p class="muted" style="margin:6px 0 8px;"><strong>Notes:</strong> ${escapeHtml(inv.notes)}</p>` : ""}
+                        </td>
+                      </tr>
+                    `);
+                  }
+                  return rows.join("");
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
     return `
-      <tr>
-        <td><strong>${escapeHtml(monthLabel(key))}</strong></td>
-        <td>${invs.length}</td>
-        <td><strong>${money(total)}</strong></td>
-        <td>
-          <button type="button" data-month="${escapeHtml(key)}">Download .xlsx</button>
-        </td>
-      </tr>
+      <div class="archived-month-card">
+        <button type="button" class="archived-month-header" data-toggle-month="${escapeHtml(key)}">
+          <span style="font-size:18px;margin-right:8px;">${arrow}</span>
+          <strong style="font-size:16px;">${escapeHtml(monthLabel(key))}</strong>
+          <span class="muted" style="margin-left:auto;">${invs.length} invoice${invs.length === 1 ? "" : "s"} · ${money(total)}</span>
+        </button>
+        ${body}
+      </div>
     `;
   }).join("");
 
-  body.querySelectorAll("button[data-month]").forEach(btn => {
-    btn.addEventListener("click", () => exportArchivedMonth(btn.dataset.month));
+  // Wire up month-header toggles
+  container.querySelectorAll("button[data-toggle-month]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.toggleMonth;
+      expandedArchivedMonth = (expandedArchivedMonth === key) ? null : key;
+      expandedArchivedInvoice = null; // close any open invoice when changing months
+      renderArchivedMonths();
+    });
   });
+
+  // Wire up Download .xlsx buttons
+  container.querySelectorAll("button[data-export-month]").forEach(btn => {
+    btn.addEventListener("click", () => exportArchivedMonth(btn.dataset.exportMonth));
+  });
+
+  // Wire up View / PDF buttons per invoice
+  container.querySelectorAll("button[data-archived-action]").forEach(btn => {
+    const action = btn.dataset.archivedAction;
+    const invnum = btn.dataset.invnum;
+    btn.addEventListener("click", () => {
+      if (action === "toggle") {
+        expandedArchivedInvoice = (expandedArchivedInvoice === invnum) ? null : invnum;
+        renderArchivedMonths();
+      } else if (action === "pdf") {
+        downloadArchivedInvoicePdf(invnum);
+      }
+    });
+  });
+}
+
+function downloadArchivedInvoicePdf(invoiceNumber) {
+  const invoice = adminState.invoices.find(inv => inv.invoiceNumber === invoiceNumber);
+  if (!invoice) {
+    showAdminMessage("Invoice not found.", true);
+    return;
+  }
+  buildAndDownloadInvoicePdf(invoice);
+}
+
+// ---- Helper functions for PDF generation (copied from app.js) ----
+
+function formatDate(stored) {
+  if (!stored) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(stored));
+  if (!m) return String(stored);
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.toLocaleDateString();
+}
+
+function getInvoiceLineItems(invoice) {
+  if (Array.isArray(invoice.lineItems)) return invoice.lineItems;
+  return [{
+    rackingType: invoice.rackingType,
+    partId: invoice.partId,
+    partName: invoice.partName,
+    quantityUsed: invoice.quantityUsed,
+    costEach: invoice.costEach,
+    total: invoice.total
+  }];
+}
+
+// Builds a branded PDF for a given invoice. Mirrors the app.js version.
+function buildAndDownloadInvoicePdf(invoice) {
+  if (!window.jspdf || typeof window.jspdf.jsPDF !== "function") {
+    showAdminMessage("PDF library didn't load. Check your internet connection and refresh the page.", true);
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  if (typeof doc.autoTable !== "function") {
+    showAdminMessage("PDF table library didn't load. Check your internet connection and refresh the page.", true);
+    return;
+  }
+  const lineItems = getInvoiceLineItems(invoice);
+
+  const GREEN_DARK = [15, 58, 42];
+  const GREEN_MID  = [22, 107, 70];
+  const YELLOW     = [245, 209, 22];
+  const PAGE_W     = doc.internal.pageSize.getWidth();
+
+  // Header band
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(0, 0, PAGE_W, 32, "F");
+  doc.setFillColor(...YELLOW);
+  doc.rect(0, 32, PAGE_W, 2, "F");
+
+  doc.setTextColor(...YELLOW);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text("Mc Racking", 14, 16);
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  const hq = [
+    "McCoy Corporation Headquarters",
+    "1350 N I.H. 35",
+    "San Marcos, TX 78666"
+  ];
+  let hqY = 12;
+  for (const line of hq) {
+    doc.text(line, PAGE_W - 14, hqY, { align: "right" });
+    hqY += 5;
+  }
+
+  const isDamage = !!invoice.isDamageWriteOff;
+  doc.setTextColor(...GREEN_DARK);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text(isDamage ? "DAMAGE WRITE-OFF INVOICE" : "RACKING INVENTORY INVOICE", 14, 46);
+
+  if (isDamage) {
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({ opacity: 0.18 }));
+    doc.setTextColor(180, 30, 30);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(56);
+    doc.text("DAMAGE WRITE-OFF", PAGE_W / 2, 150, { align: "center", angle: 25 });
+    doc.restoreGraphicsState();
+    doc.setTextColor(...GREEN_DARK);
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(80, 80, 80);
+  doc.text("INVOICE #", 14, 56);
+  doc.text("DATE", 14, 66);
+  if (invoice.lastEditedDate && invoice.lastEditedDate !== invoice.date) {
+    doc.text("LAST EDITED", 14, 76);
+  }
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(11);
+  doc.text(invoice.invoiceNumber || "", 50, 56);
+  doc.text(formatDate(invoice.date) || "", 50, 66);
+  if (invoice.lastEditedDate && invoice.lastEditedDate !== invoice.date) {
+    doc.text(formatDate(invoice.lastEditedDate) || "", 50, 76);
+  }
+
+  // Ship To box
+  const shipBoxX = 115, shipBoxY = 50, shipBoxW = 81, shipBoxH = 38;
+  doc.setDrawColor(...GREEN_MID);
+  doc.setLineWidth(0.5);
+  doc.rect(shipBoxX, shipBoxY, shipBoxW, shipBoxH, "S");
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(shipBoxX, shipBoxY, shipBoxW, 6, "F");
+  doc.setTextColor(...YELLOW);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("SHIP TO", shipBoxX + 3, shipBoxY + 4.4);
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  const loc = invoice.locationDetails || {};
+  const locName = loc.name || invoice.location || "";
+  let by = shipBoxY + 12;
+  if (locName) { doc.text(locName, shipBoxX + 3, by); by += 5; }
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  if (loc.address) { doc.text(loc.address, shipBoxX + 3, by); by += 4.5; }
+  const cityState = [loc.city, loc.state].filter(Boolean).join(", ");
+  const cityStateZip = (cityState + (loc.zip ? " " + loc.zip : "")).trim();
+  if (cityStateZip) { doc.text(cityStateZip, shipBoxX + 3, by); by += 4.5; }
+  if (loc.phone) { doc.text("Phone: " + loc.phone, shipBoxX + 3, by); by += 4.5; }
+
+  let belowY = Math.max(82, shipBoxY + shipBoxH + 6);
+  if (invoice.user) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(80, 80, 80);
+    doc.text("CREATED BY", 14, belowY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(0, 0, 0);
+    doc.text(invoice.user, 50, belowY);
+    belowY += 7;
+  }
+  if (invoice.truck) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(80, 80, 80);
+    doc.text("TRUCK", 14, belowY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(0, 0, 0);
+    doc.text(invoice.truck, 50, belowY);
+    belowY += 7;
+  }
+  if (invoice.workOrderNumber) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(80, 80, 80);
+    doc.text("WORK ORDER #", 14, belowY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(0, 0, 0);
+    doc.text(invoice.workOrderNumber, 50, belowY);
+    belowY += 7;
+  }
+  if (invoice.poNumber) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(80, 80, 80);
+    doc.text("PO #", 14, belowY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(0, 0, 0);
+    doc.text(invoice.poNumber, 50, belowY);
+    belowY += 7;
+  }
+
+  doc.autoTable({
+    startY: belowY + 4,
+    head: [["Racking Type", "Item / Part", "Qty Used", "Cost Each", "Line Total"]],
+    body: lineItems.map(line => [
+      line.rackingType,
+      line.partName,
+      line.quantityUsed,
+      money(line.costEach),
+      money(line.total)
+    ]),
+    headStyles: { fillColor: GREEN_DARK, textColor: YELLOW, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    styles: { fontSize: 10, cellPadding: 3 },
+    columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+    margin: { left: 14, right: 14 }
+  });
+
+  let finalY = doc.lastAutoTable.finalY + 6;
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(14, finalY, PAGE_W - 28, 12, "F");
+  doc.setTextColor(...YELLOW);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text("INVOICE TOTAL", 18, finalY + 8);
+  doc.text(money(invoice.total), PAGE_W - 18, finalY + 8, { align: "right" });
+
+  finalY += 22;
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  if (invoice.notes) {
+    doc.setFont("helvetica", "bold");
+    doc.text("Notes:", 14, finalY);
+    finalY += 6;
+    doc.setFont("helvetica", "normal");
+    const wrapped = doc.splitTextToSize(String(invoice.notes), PAGE_W - 28);
+    doc.text(wrapped, 14, finalY);
+    finalY += wrapped.length * 5 + 8;
+  }
+  doc.text("Authorized Signature: ______________________________", 14, finalY);
+
+  doc.setTextColor(120, 120, 120);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("Mc Racking - McCoy Corporation Headquarters - 1350 N I.H. 35, San Marcos, TX 78666",
+           PAGE_W / 2, doc.internal.pageSize.getHeight() - 8, { align: "center" });
+
+  doc.save(`${invoice.invoiceNumber}.pdf`);
+}
+
+// Builds a "Racking Received" PDF for a given receipt (from the Receiving tab).
+// Acts as the receiving record — replaces the need to upload the supplier's actual PDF.
+function buildAndDownloadReceiptPdf(receipt) {
+  if (!window.jspdf || typeof window.jspdf.jsPDF !== "function") {
+    showAdminMessage("PDF library didn't load. Check your internet connection and refresh the page.", true);
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  if (typeof doc.autoTable !== "function") {
+    showAdminMessage("PDF table library didn't load. Check your internet connection and refresh the page.", true);
+    return;
+  }
+  const r = normalizeReceipt(receipt);
+  const lineItems = Array.isArray(r.lineItems) ? r.lineItems : [];
+
+  const GREEN_DARK = [15, 58, 42];
+  const GREEN_MID  = [22, 107, 70];
+  const YELLOW     = [245, 209, 22];
+  const PAGE_W     = doc.internal.pageSize.getWidth();
+
+  // ===== HEADER BAND =====
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(0, 0, PAGE_W, 32, "F");
+  doc.setFillColor(...YELLOW);
+  doc.rect(0, 32, PAGE_W, 2, "F");
+
+  doc.setTextColor(...YELLOW);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text("Mc Racking", 14, 16);
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  const hq = [
+    "McCoy Corporation Headquarters",
+    "1350 N I.H. 35",
+    "San Marcos, TX 78666"
+  ];
+  let hqY = 12;
+  for (const line of hq) {
+    doc.text(line, PAGE_W - 14, hqY, { align: "right" });
+    hqY += 5;
+  }
+
+  // ===== TITLE =====
+  doc.setTextColor(...GREEN_DARK);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text("RACKING RECEIVED", 14, 46);
+
+  // ===== LEFT METADATA =====
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(80, 80, 80);
+  doc.text("DATE", 14, 56);
+  if (r.recordedBy) doc.text("RECORDED BY", 14, 66);
+
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(11);
+  doc.text(formatDate(r.date) || "", 50, 56);
+  if (r.recordedBy) doc.text(r.recordedBy, 50, 66);
+
+  // ===== RECEIVED FROM BOX (right side) =====
+  const boxX = 115, boxY = 50, boxW = 81, boxH = 38;
+  doc.setDrawColor(...GREEN_MID);
+  doc.setLineWidth(0.5);
+  doc.rect(boxX, boxY, boxW, boxH, "S");
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(boxX, boxY, boxW, 6, "F");
+  doc.setTextColor(...YELLOW);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("RECEIVED FROM", boxX + 3, boxY + 4.4);
+
+  doc.setTextColor(0, 0, 0);
+  let by = boxY + 12;
+  if (r.supplier) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text(r.supplier, boxX + 3, by);
+    by += 6;
+  } else {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(10);
+    doc.setTextColor(150, 150, 150);
+    doc.text("(no supplier on file)", boxX + 3, by);
+    doc.setTextColor(0, 0, 0);
+    by += 6;
+  }
+  if (r.po) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(80, 80, 80);
+    doc.text("PO / INVOICE #", boxX + 3, by);
+    by += 4.5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    doc.text(r.po, boxX + 3, by);
+    by += 5;
+  }
+
+  // ===== LINE ITEMS TABLE =====
+  const tableStartY = Math.max(78, boxY + boxH + 6);
+  doc.autoTable({
+    startY: tableStartY,
+    head: [["Racking Type", "Item / Part", "Qty Received", "Cost Each", "Line Total"]],
+    body: lineItems.map(li => [
+      li.rackingType || "",
+      li.partName || "",
+      Number(li.qtyReceived || 0),
+      money(li.costEach),
+      money(li.lineTotal || (Number(li.qtyReceived || 0) * Number(li.costEach || 0)))
+    ]),
+    headStyles: { fillColor: GREEN_DARK, textColor: YELLOW, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    styles: { fontSize: 10, cellPadding: 3 },
+    columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+    margin: { left: 14, right: 14 }
+  });
+
+  // ===== TOTAL BAR =====
+  let finalY = doc.lastAutoTable.finalY + 6;
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(14, finalY, PAGE_W - 28, 12, "F");
+  doc.setTextColor(...YELLOW);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text("RECEIPT TOTAL", 18, finalY + 8);
+  doc.text(money(r.totalValue || 0), PAGE_W - 18, finalY + 8, { align: "right" });
+
+  finalY += 22;
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  if (r.notes) {
+    doc.setFont("helvetica", "bold");
+    doc.text("Notes:", 14, finalY);
+    finalY += 6;
+    doc.setFont("helvetica", "normal");
+    const wrapped = doc.splitTextToSize(String(r.notes), PAGE_W - 28);
+    doc.text(wrapped, 14, finalY);
+    finalY += wrapped.length * 5 + 8;
+  }
+  doc.text("Received Signature: ______________________________", 14, finalY);
+
+  // Footer
+  doc.setTextColor(120, 120, 120);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("Mc Racking - McCoy Corporation Headquarters - 1350 N I.H. 35, San Marcos, TX 78666",
+           PAGE_W / 2, doc.internal.pageSize.getHeight() - 8, { align: "center" });
+
+  // Filename: Receipt-YYYY-MM-DD-Supplier-PO.pdf (sanitized)
+  const safe = s => String(s || "").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+  const parts = ["Receipt", r.date, safe(r.supplier), safe(r.po)].filter(Boolean);
+  const filename = parts.join("-") + ".pdf";
+  doc.save(filename);
+}
+
+function downloadReceiptPdf(receiptId) {
+  const receipt = adminState.receipts.find(r => r.id === receiptId);
+  if (!receipt) {
+    showAdminMessage("Receipt not found.", true);
+    return;
+  }
+  buildAndDownloadReceiptPdf(receipt);
 }
 
 function exportArchivedMonth(monthKey) {
@@ -1508,6 +2036,430 @@ function renderAuditLog() {
   }).join("");
 }
 
+// ---------- RECEIVING tab --------------------------------------------------
+
+// Working state for the in-progress receipt (cleared after successful save)
+let receiptLines = [];      // [{rackingType, partId, qty, cost}, ...]
+let expandedReceipts = new Set(); // which receipt IDs are expanded in history
+
+function newEmptyReceiptLine() {
+  return { rackingType: "", partId: "", qty: "", cost: "" };
+}
+
+function ensureAtLeastOneReceiptLine() {
+  if (receiptLines.length === 0) receiptLines.push(newEmptyReceiptLine());
+}
+
+function rackingTypeOptions(selected) {
+  const types = [...new Set(adminState.parts.map(p => p.rackingType).filter(Boolean))].sort();
+  return `<option value="">— Select —</option>` +
+    types.map(t => `<option value="${escapeHtml(t)}"${t === selected ? " selected" : ""}>${escapeHtml(t)}</option>`).join("");
+}
+
+function partOptionsForType(rackingType, selected) {
+  const parts = adminState.parts
+    .filter(p => !rackingType || p.rackingType === rackingType)
+    .slice()
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  return `<option value="">— Select —</option>` +
+    parts.map(p => `<option value="${escapeHtml(p.id)}"${p.id === selected ? " selected" : ""}>${escapeHtml(p.name)}</option>`).join("");
+}
+
+function renderReceiptLineItems() {
+  const container = qs("receiptLineItems");
+  if (!container) return;
+  ensureAtLeastOneReceiptLine();
+
+  container.innerHTML = receiptLines.map((line, i) => {
+    const part = line.partId ? adminState.parts.find(p => p.id === line.partId) : null;
+    const currentCost = part ? Number(part.costEach || 0) : null;
+    const hint = currentCost !== null
+      ? `Active cost: ${money(currentCost)}`
+      : "";
+    const canRemove = receiptLines.length > 1;
+    return `
+      <div class="receipt-line-row" data-line-index="${i}">
+        <div class="receipt-line-grid">
+          <label>
+            <span>Racking Type</span>
+            <select class="receipt-line-type">${rackingTypeOptions(line.rackingType)}</select>
+          </label>
+          <label class="wide-part">
+            <span>Item / Part</span>
+            <select class="receipt-line-part">${partOptionsForType(line.rackingType, line.partId)}</select>
+          </label>
+          <label>
+            <span>Qty</span>
+            <input class="receipt-line-qty" type="number" min="1" step="1" value="${escapeHtml(String(line.qty))}" placeholder="0">
+          </label>
+          <label>
+            <span>Cost Each ($)</span>
+            <input class="receipt-line-cost" type="number" min="0" step="0.01" value="${escapeHtml(String(line.cost))}" placeholder="0.00">
+            <span class="receipt-line-hint muted" style="font-size:11px;font-weight:normal;">${hint}</span>
+          </label>
+          <button type="button" class="receipt-line-remove danger" ${canRemove ? "" : "disabled style='visibility:hidden;'"} title="Remove this line">×</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // Wire up listeners for each row
+  container.querySelectorAll(".receipt-line-row").forEach(row => {
+    const i = Number(row.dataset.lineIndex);
+    const typeSel = row.querySelector(".receipt-line-type");
+    const partSel = row.querySelector(".receipt-line-part");
+    const qtyInp = row.querySelector(".receipt-line-qty");
+    const costInp = row.querySelector(".receipt-line-cost");
+    const removeBtn = row.querySelector(".receipt-line-remove");
+
+    typeSel.addEventListener("change", () => {
+      receiptLines[i].rackingType = typeSel.value;
+      receiptLines[i].partId = ""; // reset part since racking changed
+      renderReceiptLineItems();
+      updateReceiptOrderTotal();
+    });
+    partSel.addEventListener("change", () => {
+      receiptLines[i].partId = partSel.value;
+      const part = adminState.parts.find(p => p.id === partSel.value);
+      // Pre-fill cost field if it's empty, using the part's current cost
+      if (part && (receiptLines[i].cost === "" || receiptLines[i].cost === undefined)) {
+        receiptLines[i].cost = Number(part.costEach || 0).toFixed(2);
+      }
+      renderReceiptLineItems();
+      updateReceiptOrderTotal();
+    });
+    qtyInp.addEventListener("input", () => {
+      receiptLines[i].qty = qtyInp.value;
+      updateReceiptOrderTotal();
+    });
+    costInp.addEventListener("input", () => {
+      receiptLines[i].cost = costInp.value;
+      updateReceiptOrderTotal();
+    });
+    removeBtn.addEventListener("click", () => {
+      receiptLines.splice(i, 1);
+      renderReceiptLineItems();
+      updateReceiptOrderTotal();
+    });
+  });
+
+  updateReceiptOrderTotal();
+}
+
+function updateReceiptOrderTotal() {
+  const el = qs("receiptOrderTotal");
+  if (!el) return;
+  let totalQty = 0, totalValue = 0, validLines = 0;
+  for (const line of receiptLines) {
+    const qty = Math.floor(Number(line.qty || 0));
+    const cost = Number(line.cost || 0);
+    if (qty > 0 && cost > 0) {
+      totalQty += qty;
+      totalValue += qty * cost;
+      validLines++;
+    }
+  }
+  if (validLines === 0) {
+    el.textContent = "";
+  } else {
+    el.innerHTML = `<strong>${validLines}</strong> line${validLines === 1 ? "" : "s"} · <strong>${totalQty}</strong> total qty · <strong>${money(totalValue)}</strong> order value`;
+  }
+}
+
+function addReceiptLineItem() {
+  receiptLines.push(newEmptyReceiptLine());
+  renderReceiptLineItems();
+}
+
+function resetReceiptForm() {
+  receiptLines = [newEmptyReceiptLine()];
+  const form = qs("receivingForm");
+  if (form) form.reset();
+  const dateInput = qs("receiptDate");
+  if (dateInput) dateInput.value = new Date().toISOString().slice(0, 10);
+  renderReceiptLineItems();
+}
+
+async function handleReceiptSubmit(e) {
+  e.preventDefault();
+  if (!requireAdminUser()) return;
+
+  const date = qs("receiptDate").value;
+  const supplier = qs("receiptSupplier").value.trim();
+  const po = qs("receiptPO").value.trim();
+  const notes = qs("receiptNotes").value.trim();
+
+  if (!date) return showAdminMessage("Please enter the receipt date.", true);
+
+  // Validate and prepare line items
+  const prepared = [];
+  const seenPartIds = new Set();
+  for (let i = 0; i < receiptLines.length; i++) {
+    const line = receiptLines[i];
+    const partId = line.partId;
+    const qty = Math.floor(Number(line.qty || 0));
+    const cost = Number(line.cost || 0);
+    const skipIfEmpty = !partId && !line.qty && !line.cost;
+    if (skipIfEmpty) continue; // ignore completely empty rows
+    if (!partId) return showAdminMessage(`Line ${i + 1}: please select a part.`, true);
+    if (qty <= 0) return showAdminMessage(`Line ${i + 1}: quantity must be greater than zero.`, true);
+    if (cost <= 0) return showAdminMessage(`Line ${i + 1}: cost per unit must be greater than zero.`, true);
+    if (seenPartIds.has(partId)) {
+      const part = adminState.parts.find(p => p.id === partId);
+      return showAdminMessage(`Line ${i + 1}: "${part ? part.name : partId}" appears more than once. Combine quantities into a single line.`, true);
+    }
+    seenPartIds.add(partId);
+    const part = adminState.parts.find(p => p.id === partId);
+    if (!part) return showAdminMessage(`Line ${i + 1}: part not found in inventory.`, true);
+    prepared.push({ partId, part, qty, cost });
+  }
+  if (!prepared.length) return showAdminMessage("Add at least one line item with a part, quantity, and cost.", true);
+
+  // Build confirmation summary
+  let totalQty = 0, totalValue = 0;
+  const lineSummaries = prepared.map(({ part, qty, cost }) => {
+    const prevCost = Number(part.costEach || 0);
+    const changed = Math.abs(cost - prevCost) > 0.001;
+    totalQty += qty;
+    totalValue += qty * cost;
+    return `• ${part.name} — ${qty} @ ${money(cost)}${changed ? ` (was ${money(prevCost)})` : ""}`;
+  });
+
+  const summary = `Record receipt:\n\n${supplier ? `Supplier: ${supplier}\n` : ""}${po ? `PO #: ${po}\n` : ""}Date: ${date}\n\nLine items (${prepared.length}):\n${lineSummaries.join("\n")}\n\nTotal: ${totalQty} units, ${money(totalValue)}\n\nProceed?`;
+  if (!confirm(summary)) return;
+
+  const btn = qs("receiptSubmit");
+  const user = getAdminUser();
+  btn.disabled = true;
+  btn.textContent = "Saving...";
+
+  try {
+    const receiptRef = db.collection("receipts").doc();
+    const receiptId = receiptRef.id;
+
+    // Atomic write: bump every part's qty/cost + save receipt + log movements + audit
+    await db.runTransaction(async tx => {
+      // === reads first ===
+      const partRefs = prepared.map(p => db.collection("parts").doc(p.partId));
+      const partDocs = await Promise.all(partRefs.map(ref => tx.get(ref)));
+      for (let i = 0; i < partDocs.length; i++) {
+        if (!partDocs[i].exists) throw new Error(`Part ${prepared[i].part.name} no longer exists.`);
+      }
+
+      const now = firebase.firestore.FieldValue.serverTimestamp();
+      const lineItemsForDoc = [];
+      let docTotalValue = 0;
+      let docTotalQty = 0;
+
+      // === writes ===
+      for (let i = 0; i < prepared.length; i++) {
+        const { partId, qty, cost } = prepared[i];
+        const partData = partDocs[i].data();
+        const beforeQty = Number(partData.currentQuantity || 0);
+        const beforeCost = Number(partData.costEach || 0);
+        const costChanged = Math.abs(cost - beforeCost) > 0.001;
+
+        // Update the part: bump qty, set new cost
+        tx.update(partRefs[i], {
+          currentQuantity: beforeQty + qty,
+          costEach: cost,
+          updatedAt: now
+        });
+
+        // Movement record (one per line item)
+        tx.set(db.collection("inventory_movements").doc(), {
+          timestamp: now,
+          type: "RECEIPT",
+          partId,
+          partName: partData.name || "",
+          rackingType: partData.rackingType || "",
+          quantityChange: qty,
+          beforeQuantity: beforeQty,
+          afterQuantity: beforeQty + qty,
+          user,
+          details: { receiptId, supplier, po, costEach: cost, previousCost: beforeCost }
+        });
+
+        lineItemsForDoc.push({
+          partId,
+          partName: partData.name || "",
+          rackingType: partData.rackingType || "",
+          qtyReceived: qty,
+          costEach: cost,
+          previousCost: beforeCost,
+          costChanged,
+          previousQuantity: beforeQty,
+          newQuantity: beforeQty + qty,
+          lineTotal: qty * cost
+        });
+        docTotalValue += qty * cost;
+        docTotalQty += qty;
+      }
+
+      // Save the single receipt doc holding all line items
+      tx.set(receiptRef, {
+        receiptId,
+        date,
+        supplier,
+        po,
+        notes,
+        lineItems: lineItemsForDoc,
+        totalQty: docTotalQty,
+        totalValue: docTotalValue,
+        recordedBy: user,
+        createdAt: now
+      });
+
+      // Audit log (one entry per receipt, not per line)
+      tx.set(db.collection("audit_log").doc(), {
+        timestamp: now,
+        admin: user,
+        action: "RECEIVE_INVENTORY",
+        target: po ? `${supplier || "(no supplier)"} / ${po}` : (supplier || "Receipt"),
+        details: {
+          receiptId, date, supplier, po,
+          lineCount: prepared.length,
+          totalQty: docTotalQty,
+          totalValue: docTotalValue,
+          lineItems: lineItemsForDoc.map(li => ({
+            partId: li.partId,
+            partName: li.partName,
+            qty: li.qtyReceived,
+            cost: li.costEach,
+            previousCost: li.previousCost,
+            costChanged: li.costChanged
+          }))
+        }
+      });
+    });
+
+    showAdminMessage(`Receipt saved: ${prepared.length} line${prepared.length === 1 ? "" : "s"}, ${totalQty} units, ${money(totalValue)}.`, false);
+    resetReceiptForm();
+  } catch (err) {
+    console.error("Receipt save failed:", err);
+    showAdminMessage("Save failed: " + err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Record Receipt";
+  }
+}
+
+// Normalize a receipt doc to always have a `lineItems` array
+// (backward compat with the old one-line-per-doc format).
+function normalizeReceipt(r) {
+  if (Array.isArray(r.lineItems) && r.lineItems.length) return r;
+  return Object.assign({}, r, {
+    lineItems: [{
+      partId: r.partId || "",
+      partName: r.partName || "",
+      rackingType: r.rackingType || "",
+      qtyReceived: Number(r.qtyReceived || 0),
+      costEach: Number(r.costEach || 0),
+      previousCost: Number(r.previousCost || 0),
+      costChanged: !!r.costChanged,
+      previousQuantity: Number(r.previousQuantity || 0),
+      newQuantity: Number(r.newQuantity || 0),
+      lineTotal: Number(r.qtyReceived || 0) * Number(r.costEach || 0)
+    }],
+    totalQty: Number(r.qtyReceived || 0),
+    totalValue: Number(r.qtyReceived || 0) * Number(r.costEach || 0)
+  });
+}
+
+function renderReceiptsTable() {
+  const container = qs("receiptsContainer");
+  if (!container) return;
+  if (!adminState.receipts.length) {
+    container.innerHTML = `<p class="muted" style="text-align:center;padding:20px;">No receipts recorded yet. Use the form above to log incoming racking.</p>`;
+    return;
+  }
+
+  const sorted = adminState.receipts
+    .map(normalizeReceipt)
+    .slice()
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+
+  container.innerHTML = sorted.map(r => {
+    const isOpen = expandedReceipts.has(r.id);
+    const arrow = isOpen ? "▼" : "▶";
+    const labelPieces = [];
+    if (r.date) labelPieces.push(escapeHtml(r.date));
+    if (r.supplier) labelPieces.push(escapeHtml(r.supplier));
+    if (r.po) labelPieces.push(escapeHtml(r.po));
+    const headerLabel = labelPieces.length ? labelPieces.join(" — ") : "Receipt";
+    const lineCount = r.lineItems.length;
+
+    let body = "";
+    if (isOpen) {
+      body = `
+        <div class="receipt-card-body">
+          ${r.notes ? `<p style="margin:0 0 10px;"><strong>Notes:</strong> ${escapeHtml(r.notes)}</p>` : ""}
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Racking Type</th>
+                  <th>Item / Part</th>
+                  <th>Qty</th>
+                  <th>Cost Each</th>
+                  <th>Line Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${r.lineItems.map(li => `
+                  <tr>
+                    <td>${escapeHtml(li.rackingType || "")}</td>
+                    <td>${escapeHtml(li.partName || "")}</td>
+                    <td>${Number(li.qtyReceived || 0)}</td>
+                    <td>
+                      ${money(li.costEach)}
+                      ${li.costChanged ? `<br><span class="muted" style="font-size:11px;">was ${money(li.previousCost)}</span>` : ""}
+                    </td>
+                    <td>${money(li.lineTotal || (Number(li.qtyReceived || 0) * Number(li.costEach || 0)))}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+          <p class="muted" style="margin: 8px 0 0; font-size: 12px;">Recorded by ${escapeHtml(r.recordedBy || "—")}</p>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="receipt-card">
+        <div class="receipt-card-header-row">
+          <button type="button" class="receipt-card-header" data-toggle-receipt="${escapeHtml(r.id)}">
+            <span style="font-size:18px;margin-right:8px;">${arrow}</span>
+            <strong style="font-size:15px;">${headerLabel}</strong>
+            <span class="muted" style="margin-left:auto;">${lineCount} item${lineCount === 1 ? "" : "s"} · ${r.totalQty} qty · ${money(r.totalValue)}</span>
+          </button>
+          <button type="button" class="receipt-card-pdf" data-receipt-pdf="${escapeHtml(r.id)}" title="Download receipt PDF">PDF</button>
+        </div>
+        ${body}
+      </div>
+    `;
+  }).join("");
+
+  container.querySelectorAll("button[data-toggle-receipt]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.toggleReceipt;
+      if (expandedReceipts.has(id)) expandedReceipts.delete(id);
+      else expandedReceipts.add(id);
+      renderReceiptsTable();
+    });
+  });
+
+  container.querySelectorAll("button[data-receipt-pdf]").forEach(btn => {
+    btn.addEventListener("click", () => downloadReceiptPdf(btn.dataset.receiptPdf));
+  });
+}
+
+// When parts change, re-render the line item rows so dropdowns are fresh
+function populateReceivingDropdowns() {
+  renderReceiptLineItems();
+}
+
 // ---------- Tab switching --------------------------------------------------
 
 function setupTabs() {
@@ -1557,6 +2509,21 @@ async function startAdmin() {
 
   const importBtn = qs("importLocationsBtn");
   if (importBtn) importBtn.addEventListener("click", importDefaultLocations);
+
+  // Receiving form (multi-line)
+  const receivingForm = qs("receivingForm");
+  if (receivingForm) {
+    receivingForm.addEventListener("submit", handleReceiptSubmit);
+    // Default the date to today
+    const dateInput = qs("receiptDate");
+    if (dateInput) dateInput.value = new Date().toISOString().slice(0, 10);
+    // Initial blank line
+    receiptLines = [newEmptyReceiptLine()];
+    renderReceiptLineItems();
+    // "+ Add Line Item" button
+    const addBtn = qs("addReceiptLineBtn");
+    if (addBtn) addBtn.addEventListener("click", addReceiptLineItem);
+  }
 
   attachAdminListeners();
 }
