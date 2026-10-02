@@ -1,14 +1,14 @@
 // Firebase configuration for Mc Racking.
-// Project: Racking Inventory - Live
+// Project: Mc Racking - Test (TEST ONLY)
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAycjbG9_bYYNieTUEqvTJxj4vEDDBBE2k",
-  authDomain: "racking-inventory-tracker.firebaseapp.com",
-  projectId: "racking-inventory-tracker",
-  storageBucket: "racking-inventory-tracker.firebasestorage.app",
-  messagingSenderId: "61331131085",
-  appId: "1:61331131085:web:054b3b2dc731d841da7784",
-  measurementId: "G-D1NTL7ZLH1"
+  apiKey: "AIzaSyCgI1h-IbxcoPIhAc_7mzJF2bJ9WX0EMyw",
+  authDomain: "mc-racking---test.firebaseapp.com",
+  projectId: "mc-racking---test",
+  storageBucket: "mc-racking---test.firebasestorage.app",
+  messagingSenderId: "22203078980",
+  appId: "1:22203078980:web:6547d2250dc75a8d895f11",
+  measurementId: "G-43RX41YE28"
 };
 
 firebase.initializeApp(firebaseConfig);
@@ -17,8 +17,6 @@ const auth = firebase.auth();
 
 const LOGIN_PAGE = "login.html";
 
-// Cached profile for the current user (populated by ensureUserApproved)
-// Shape: { uid, email, role: "admin"|"warehouse", displayName, isAdmin }
 let currentUserProfile = null;
 
 function waitForAuthReady() {
@@ -30,18 +28,12 @@ function waitForAuthReady() {
   });
 }
 
-// Load the user's profile from Firestore: users/{uid}
-// Expected shape: { email, displayName, role: "admin" | "warehouse" }
 async function loadUserProfile(uid) {
   const doc = await db.collection("users").doc(uid).get();
   if (!doc.exists) return null;
   return doc.data();
 }
 
-// Main entry gate. Use on every page that requires login.
-//   opts.adminOnly = true → also require role === "admin"
-// Returns the profile object on success.
-// On failure: redirects to login OR shows a blocking overlay (and throws).
 async function ensureUserApproved(opts) {
   opts = opts || {};
   const user = await waitForAuthReady();
