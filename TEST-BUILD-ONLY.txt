@@ -1,3 +1,0 @@
-MC RACKING TEST BUILD ONLY
-Firebase project: mc-racking---test
-Do NOT upload this build to the live McCoy-s-Racking-Tracker repository.
